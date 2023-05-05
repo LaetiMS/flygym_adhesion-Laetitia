@@ -25,11 +25,10 @@ except ImportError:
 
 from flygym.terrain.mujoco_terrain import \
     FlatTerrain, Ball, GappedTerrain, ExtrudingBlocksTerrain
-from flygym.util.data import mujoco_groundwalking_model_path
+from flygym.util.data import mujoco_groundwalking_model_path #DONE: modified the groundwalking_nmf_mjc_nofloor_230416_bendTarsus.xml file by adding adhesion actuators
 from flygym.util.data import default_pose_path, stretch_pose_path, \
     zero_pose_path
-from flygym.util.config import all_leg_dofs, all_tarsi_collisions_geoms, \
-    all_legs_collisions_geoms, all_legs_collisions_geoms_no_coxa
+from flygym.util.config import all_leg_dofs, all_adhesion_bodies, all_tarsi_collisions_geoms, all_legs_collisions_geoms, all_legs_collisions_geoms_no_coxa, tripod_adhesion_bodies, single_leg_adhesion_bodies
 
 _init_pose_lookup = {
     'default': default_pose_path,
@@ -43,6 +42,12 @@ _collision_lookup = {
     'tarsi': all_tarsi_collisions_geoms,
     'none': []
 }
+_adhesion_lookup = {
+    'all': all_adhesion_bodies,
+    'tripod': tripod_adhesion_bodies,
+    'single_leg': single_leg_adhesion_bodies,
+}
+
 _default_terrain_config = {
     'flat': {
         'size': (50_000, 50_000),
@@ -79,7 +84,8 @@ _default_terrain_config = {
 _default_physics_config = {
     'joint_stiffness': 2500,
     'friction': (1, 0.005, 0.0001),
-    'gravity': (0, 0, -9.81e5),
+    'gravity': (0, 0, -9.81e5), #important
+    'gravity_inv': (0,0,9.81e5), 
 }
 _default_render_config = {
     'saved': {'window_size': (640, 480), 'playspeed': 1.0, 'fps': 60,
@@ -132,6 +138,8 @@ class NeuroMechFlyMuJoCo(gym.Env):
         The MuJoCo physics simulation.
     actuators : Dict[str, dm_control.mjcf.Element]
         The MuJoCo actuators.
+    actuators_adhesion: #TO DO: add documentation
+        The MuJoCo adhesion actuators. 
     joint_sensors : Dict[str, dm_control.mjcf.Element]
         The MuJoCo sensors on joint positions, velocities, and forces.
     body_sensors : Dict[str, dm_control.mjcf.Element]
@@ -165,6 +173,8 @@ class NeuroMechFlyMuJoCo(gym.Env):
                  render_mode: str = 'saved',
                  render_config: Dict[str, Any] = {},
                  actuated_joints: List = all_leg_dofs,
+                 adhesion: bool = True,
+                 actuated_bodies: str = 'all',
                  collision_tracked_geoms: List = all_tarsi_collisions_geoms,
                  timestep: float = 0.0001,
                  output_dir: Optional[Path] = None,
@@ -192,6 +202,11 @@ class NeuroMechFlyMuJoCo(gym.Env):
             for detailed options.
         actuated_joints : List, optional
             List of actuated joint DoFs, by default all leg DoFs
+        adhesion : bool, optional
+            True : General Adhesion is on
+            False : General Adhesion is off 
+        actuated_bodies : str, optional
+            The stance of actuated bodies for static adhesion simulation. It can be 'all', 'tripod' or 'single_leg'
         timestep : float, optional
             Simulation timestep in seconds, by default 0.0001
         output_dir : Path, optional
@@ -223,6 +238,8 @@ class NeuroMechFlyMuJoCo(gym.Env):
         self.render_config = copy.deepcopy(_default_render_config[render_mode])
         self.render_config.update(render_config)
         self.actuated_joints = actuated_joints
+        self.adhesion = adhesion
+        self.actuated_bodies = _adhesion_lookup[actuated_bodies] #added
         self.collision_tracked_geoms = collision_tracked_geoms
         self.timestep = timestep
         if output_dir is not None:
@@ -239,7 +256,8 @@ class NeuroMechFlyMuJoCo(gym.Env):
         num_dofs = len(actuated_joints)
         bound = np.pi if control == 'position' else np.inf
         self.action_space = {
-            'joints': spaces.Box(low=-bound, high=bound, shape=(num_dofs,))
+            'joints': spaces.Box(low=-bound, high=bound, shape=(num_dofs,)),
+            'adhesion': spaces.Discrete(n=2, start=0) #TO DO: change this if you do not want discrete adhesion values 
         }
         self.observation_space = {
             # joints: shape (3, num_dofs): (pos, vel, torque) of each DoF
@@ -251,6 +269,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
             # 2nd row: orientation of fly around x, y, z axes
             # 3rd row: rate of change of fly orientation
             'fly': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 3)),
+            'tarsus_body': spaces.Box(low=-np.inf, high=np.inf, shape=(4,5)) #TO DO: INCOMPLETE
         }
 
         # Load NMF model
@@ -272,7 +291,12 @@ class NeuroMechFlyMuJoCo(gym.Env):
             self.model.find('actuator', f'actuator_{control}_{joint}')
             for joint in actuated_joints
         ]
-
+        self.actuators_adhesion = []
+        for body_name in self.actuated_bodies: 
+            self.actuators_adhesion.extend([
+                self.model.actuator.add('adhesion', name =f"{body_name}_adhesion", gain="5000", body=body_name, ctrlrange="0 1000000", forcerange="-inf inf") #gain ="500" is too week
+            ])
+        print(f'{self.actuators_adhesion} actuators _adhesion')
         # Add sensors
         self.joint_sensors = []
         for joint in actuated_joints:
@@ -345,7 +369,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
                         self.self_contact_pairs_names.append(f'{geom1}_{geom2}')
 
         self.end_effector_sensors = []
-        self.end_effector_names = []
+        self.end_effector_names = [] #TO DO: This might be very useful!
         for body in self.model.find_all('body'):
             if "Tarsus5" in body.name:
                 self.end_effector_names.append(body.name)
@@ -487,6 +511,14 @@ class NeuroMechFlyMuJoCo(gym.Env):
                     self.physics.named.data.qpos[
                         f'Animat/{self.actuators[i].joint.name}'
                     ] = angle_0
+            if self.adhesion:
+                print(self.actuators_adhesion)
+                for adh_act in self.actuators_adhesion:
+                    self.physics.bind(adh_act).ctrl = 1 #pay attention it doesnt work for some reason if you write: self.physics.model.bind(adh_act).ctrl
+            else:
+                for adh_act in self.actuators_adhesion:
+                    self.physics.bind(adh_act).ctrl = 0 
+                
 
     def _set_compliant_Tarsus(self,
                               all_joints: List,
@@ -559,6 +591,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
             information.
         """
         self.physics.bind(self.actuators).ctrl = action['joints']
+        self.physics.bind(self.actuators_adhesion).ctrl = action['adhesion'] #added
         self.physics.step()
         self.curr_time += self.timestep
         return self._get_observation(), self._get_info()
@@ -599,13 +632,16 @@ class NeuroMechFlyMuJoCo(gym.Env):
         quat = self.physics.bind(self.body_sensors[2]).sensordata
         # ang_pos = transformations.quat_to_euler(quat)
         ang_pos = R.from_quat(quat).as_euler('xyz')  # explicitly use intrinsic
-        ang_pos[0] *= -1  # flip roll??
+        ang_pos[0] *= -1  # flip roll?? 
         ang_vel = self.physics.bind(self.body_sensors[3]).sensordata
         fly_pos = np.array([cart_pos, cart_vel, ang_pos, ang_vel])
 
         # tarsi contact forces
         touch_sensordata = np.array(
             self.physics.bind(self.touch_sensors).sensordata)
+        
+        # adhesion activated or not?
+        adhesion_obs = np.array(self.physics.bind(self.actuators_adhesion).ctrl) #added 0 or 1 if adhesion is active in a certain joint
 
         # end effector position
         ee_pos = self.physics.bind(self.end_effector_sensors).sensordata
@@ -613,6 +649,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
         return {
             'joints': joint_obs,
             'fly': fly_pos,
+            'bodies_adhesion': adhesion_obs, #added : idea: record when adhesion is turned on
             'contact_forces': touch_sensordata,
             'end_effectors': ee_pos
         }

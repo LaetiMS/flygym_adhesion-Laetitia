@@ -13,10 +13,10 @@ all_adhesion_bodies = [
     for pos in 'FMH'
     #for dof in ['Tarsus1', 'Tarsus2', 'Tarsus3', 'Tarsus4', 'Tarsus5']
     for dof in ['Tarsus5']
-    ######TO DO: addedddd
 ]
 tripod_adhesion_bodies = [elem for elem in ['LFTarsus5', 'LHTarsus5','RMTarsus5']]
 single_leg_adhesion_bodies = ['LFTarsus5']
+
 leg_dofs_3_per_leg = [
     f'joint_{side}{pos}{dof}'
     for side in 'LR'

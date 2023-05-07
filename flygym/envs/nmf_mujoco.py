@@ -175,6 +175,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
                  actuated_joints: List = all_leg_dofs,
                  adhesion: bool = True,
                  actuated_bodies: str = 'all',
+                 actuators_adhesion_gain: float = 2500,
                  collision_tracked_geoms: List = all_tarsi_collisions_geoms,
                  timestep: float = 0.0001,
                  output_dir: Optional[Path] = None,
@@ -239,7 +240,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
         self.render_config.update(render_config)
         self.actuated_joints = actuated_joints
         self.adhesion = adhesion
-        self.actuated_bodies = _adhesion_lookup[actuated_bodies] #added
+        self.actuated_adhesion_bodies = _adhesion_lookup[actuated_bodies] #added
         self.collision_tracked_geoms = collision_tracked_geoms
         self.timestep = timestep
         if output_dir is not None:
@@ -257,7 +258,8 @@ class NeuroMechFlyMuJoCo(gym.Env):
         bound = np.pi if control == 'position' else np.inf
         self.action_space = {
             'joints': spaces.Box(low=-bound, high=bound, shape=(num_dofs,)),
-            'adhesion': spaces.Discrete(n=2, start=0) #TO DO: change this if you do not want discrete adhesion values 
+            #'adhesion': spaces.Discrete(n=2, start=0) #TO DO: change this if you do not want discrete adhesion values 
+            'adhesion': spaces.Box(low=0.0, high=1.0)
         }
         self.observation_space = {
             # joints: shape (3, num_dofs): (pos, vel, torque) of each DoF
@@ -292,11 +294,19 @@ class NeuroMechFlyMuJoCo(gym.Env):
             for joint in actuated_joints
         ]
         self.actuators_adhesion = []
-        for body_name in self.actuated_bodies: 
+        self.actuators_adhesion_gain = actuators_adhesion_gain
+        for body_name in self.actuated_adhesion_bodies: 
             self.actuators_adhesion.extend([
-                self.model.actuator.add('adhesion', name =f"{body_name}_adhesion", gain="5000", body=body_name, ctrlrange="0 1000000", forcerange="-inf inf") #gain ="500" is too week
+                self.model.actuator.add('adhesion', name =f"{body_name}_adhesion", gain=f"{self.actuators_adhesion_gain}", body=body_name, ctrlrange="0 1000000", forcerange="-inf inf") #gain ="500" is too week
             ])
         print(f'{self.actuators_adhesion} actuators _adhesion')
+
+        # Initialize contact force and previous contact state
+        self.contact_force = {}
+        self.prev_contact = {}
+        for body_name in self.actuated_adhesion_bodies:
+            self.contact_force[body_name] = 0.0
+            self.prev_contact[body_name] = False
         # Add sensors
         self.joint_sensors = []
         for joint in actuated_joints:
@@ -377,7 +387,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
                     'framepos', name=f'{body.name}_pos',
                     objtype='body', objname=body.name
                 )
-                self.end_effector_sensors.append(end_effector_sensor)
+                self.end_effector_sensors.append(end_effector_sensor) #remove: i added the brackets [end_effector_sensor]
 
         ## Add sites and touch sensors
         self.touch_sensors = []
@@ -641,10 +651,74 @@ class NeuroMechFlyMuJoCo(gym.Env):
             self.physics.bind(self.touch_sensors).sensordata)
         
         # adhesion activated or not?
+        #HERE
+        '''
+        # Reset contact forces to zero
+        for body_name in self.actuated_adhesion_bodies:
+            self.contact_force[body_name] = 0.0
+            
+        # Check for contacts and update contact forces
+        for i in range(self.physics.data.ncon):
+            contact = self.physics.data.contact[i]
+            geom1 = self.physics.named.data.geom_xpos[contact.geom1]
+            geom2 = self.physics.named.data.geom_xpos[contact.geom2]    
+            for body_name in self.actuated_adhesion_bodies:
+                if f"{body_name}_collision" in (geom1, geom2):
+                    if geom1 == f"{body_name}_collision":
+                        print("hi")
+                        contact_force = np.linalg.norm(contact.force)
+                    else:
+                        contact_force = -np.linalg.norm(contact.force)
+                        
+                    self.contact_force[body_name] += contact_force
+                    
+        # Update adhesion actuators based on contact forces
+        for body_name in self.actuated_adhesion_bodies:
+            if self.contact_force[body_name] > 0 and not self.prev_contact[body_name]:
+                # Leg is pushing into floor
+                self.actuators_adhesion[self.actuators_adhesion.index(f"{body_name}_adhesion")].ctrl = 1
+                self.prev_contact[body_name] = True
+            elif self.contact_force[body_name] <= 0 and self.prev_contact[body_name]:
+                # Leg is lifting off floor
+                self.actuators_adhesion[self.actuators_adhesion.index(f"{body_name}_adhesion")].ctrl = 0
+                self.prev_contact[body_name] = False
         adhesion_obs = np.array(self.physics.bind(self.actuators_adhesion).ctrl) #added 0 or 1 if adhesion is active in a certain joint
+        '''
 
+        '''
+        if self.adhesion:          
+            for body_name in self.actuated_adhesion_bodies:
+                adhesion = 0
+                for contact in self.physics.named.data.contact[0]:
+                    if contact.geom1 == self.physics.named.model.geom_name2id(f"{body_name}_collision") and contact.geom2 == self.physics.named.model.geom_name2id("floor_collision"):
+                        force = np.linalg.norm(contact.fdir1 * contact.torque1)
+                        if force > threshold:
+                            adhesion = 1
+                            break
+                #self.physics.named.data.ctrl[f"{body_name}_adhesion"] = adhesion
+                self.physics.bind([f"{body_name}_adhesion"]).ctrl = adhesion
+            """    
+            for adh_act in self.actuators_adhesion:
+                    self.physics.bind(adh_act).ctrl = 0.1 #pay attention it doesnt work for some reason if you write: self.physics.model.bind(adh_act).ctrl
+            """
+        else:
+            for adh_act in self.actuators_adhesion:
+                self.physics.bind(adh_act).ctrl = 0 
+        adhesion_obs = np.array(self.physics.bind(self.actuators_adhesion).ctrl) #added 0 or 1 if adhesion is active in a certain joint
+        '''
+
+
+        if self.adhesion:                        
+            for adh_act in self.actuators_adhesion:
+                    self.physics.bind(adh_act).ctrl = 1 #pay attention it doesnt work for some reason if you write: self.physics.model.bind(adh_act).ctrl
+        
+        else:
+            for adh_act in self.actuators_adhesion:
+                self.physics.bind(adh_act).ctrl = 0 
+        adhesion_obs = np.array(self.physics.bind(self.actuators_adhesion).ctrl) #added 0 or 1 if adhesion is active in a certain joint   
         # end effector position
         ee_pos = self.physics.bind(self.end_effector_sensors).sensordata
+        #print(ee_pos)
 
         return {
             'joints': joint_obs,

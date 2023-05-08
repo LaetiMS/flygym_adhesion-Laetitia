@@ -259,7 +259,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
         self.action_space = {
             'joints': spaces.Box(low=-bound, high=bound, shape=(num_dofs,)),
             #'adhesion': spaces.Discrete(n=2, start=0) #TO DO: change this if you do not want discrete adhesion values 
-            'adhesion': spaces.Box(low=0.0, high=1.0)
+            'adhesion': spaces.Box(low=0.0, high=np.inf)
         }
         self.observation_space = {
             # joints: shape (3, num_dofs): (pos, vel, torque) of each DoF
@@ -511,6 +511,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
         self._set_compliant_Tarsus(all_joints, stiff=3.5e5, damping=100)
         # set init pose
         self._set_init_pose(self.init_pose)
+        self.previous_touch_sensor = np.array(self.physics.bind(self.touch_sensors).sensordata)
 
     def _set_init_pose(self, init_pose: Dict[str, float]):
         with self.physics.reset_context():
@@ -646,10 +647,13 @@ class NeuroMechFlyMuJoCo(gym.Env):
         ang_vel = self.physics.bind(self.body_sensors[3]).sensordata
         fly_pos = np.array([cart_pos, cart_vel, ang_pos, ang_vel])
 
+
         # tarsi contact forces
-        touch_sensordata = np.array(
-            self.physics.bind(self.touch_sensors).sensordata)
-        
+        touch_sensordata = np.array(self.physics.bind(self.touch_sensors).sensordata)
+        derivative_contact_forces = (self.previous_touch_sensor - touch_sensordata)/self.timestep
+
+        self.previous_touch_sensor = touch_sensordata
+
         # adhesion activated or not?
         #HERE
         '''
@@ -707,7 +711,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
         adhesion_obs = np.array(self.physics.bind(self.actuators_adhesion).ctrl) #added 0 or 1 if adhesion is active in a certain joint
         '''
 
-
+        """
         if self.adhesion:                        
             for adh_act in self.actuators_adhesion:
                     self.physics.bind(adh_act).ctrl = 1 #pay attention it doesnt work for some reason if you write: self.physics.model.bind(adh_act).ctrl
@@ -716,16 +720,19 @@ class NeuroMechFlyMuJoCo(gym.Env):
             for adh_act in self.actuators_adhesion:
                 self.physics.bind(adh_act).ctrl = 0 
         adhesion_obs = np.array(self.physics.bind(self.actuators_adhesion).ctrl) #added 0 or 1 if adhesion is active in a certain joint   
+        """
         # end effector position
-        ee_pos = self.physics.bind(self.end_effector_sensors).sensordata
+        ee_pos = copy.deepcopy(self.physics.bind(self.end_effector_sensors).sensordata)
         #print(ee_pos)
 
+        self.physics.control()
         return {
             'joints': joint_obs,
             'fly': fly_pos,
-            'bodies_adhesion': adhesion_obs, #added : idea: record when adhesion is turned on
+            #'bodies_adhesion': adhesion_obs, #added : idea: record when adhesion is turned on
             'contact_forces': touch_sensordata,
-            'end_effectors': ee_pos
+            'end_effectors': ee_pos,
+            'derivative_contact_forces': derivative_contact_forces
         }
 
     def _get_info(self):

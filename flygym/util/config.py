@@ -30,7 +30,11 @@ all_tarsi_collisions_geoms = [
     for pos in 'FMH'
     for dof in ['Tarsus1', 'Tarsus2', 'Tarsus3', 'Tarsus4', 'Tarsus5']
 ]
-
+tripod_tarsi_collision_geoms = [
+    f'{prefix}{dof}_collision'
+    for prefix in ['LF', 'LH', 'RM']
+    for dof in ['Tarsus1', 'Tarsus2', 'Tarsus3', 'Tarsus4', 'Tarsus5']
+]
 all_legs_collisions_geoms = [
     f'{side}{pos}{dof}_collision'
     for side in 'LR'

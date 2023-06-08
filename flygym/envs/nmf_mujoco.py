@@ -28,7 +28,7 @@ from flygym.terrain.mujoco_terrain import \
 from flygym.util.data import mujoco_groundwalking_model_path #DONE: modified the groundwalking_nmf_mjc_nofloor_230416_bendTarsus.xml file by adding adhesion actuators
 from flygym.util.data import default_pose_path, stretch_pose_path, \
     zero_pose_path
-from flygym.util.config import all_leg_dofs, all_adhesion_bodies, all_tarsi_collisions_geoms, all_legs_collisions_geoms, all_legs_collisions_geoms_no_coxa, tripod_adhesion_bodies, single_leg_adhesion_bodies
+from flygym.util.config import all_leg_dofs, all_adhesion_bodies, all_tarsi_collisions_geoms, tripod_tarsi_collision_geoms, all_legs_collisions_geoms, all_legs_collisions_geoms_no_coxa, tripod_adhesion_bodies, single_leg_adhesion_bodies
 
 _init_pose_lookup = {
     'default': default_pose_path,
@@ -40,6 +40,7 @@ _collision_lookup = {
     'legs': all_legs_collisions_geoms,
     'legs-no-coxa': all_legs_collisions_geoms_no_coxa,
     'tarsi': all_tarsi_collisions_geoms,
+    'tripod': tripod_tarsi_collision_geoms,
     'none': []
 }
 _adhesion_lookup = {
@@ -175,7 +176,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
                  actuated_joints: List = all_leg_dofs,
                  adhesion: bool = True,
                  actuated_bodies: str = 'all',
-                 actuators_adhesion_gain: float = 2500,
+                 actuators_adhesion_gain: float = 4000,
                  collision_tracked_geoms: List = all_tarsi_collisions_geoms,
                  timestep: float = 0.0001,
                  output_dir: Optional[Path] = None,
@@ -242,6 +243,8 @@ class NeuroMechFlyMuJoCo(gym.Env):
         self.adhesion = adhesion
         self.actuated_adhesion_bodies = _adhesion_lookup[actuated_bodies] #added
         self.collision_tracked_geoms = collision_tracked_geoms
+        if actuated_bodies == 'tripod': 
+            self.collision_tracked_geoms = _collision_lookup['tripod']
         self.timestep = timestep
         if output_dir is not None:
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -392,7 +395,7 @@ class NeuroMechFlyMuJoCo(gym.Env):
         ## Add sites and touch sensors
         self.touch_sensors = []
 
-        for tracked_geom in collision_tracked_geoms:
+        for tracked_geom in self.collision_tracked_geoms:
             geom = self.model.find("geom", tracked_geom)
             body = geom.parent
             site = body.add('site', name=f'site_{geom.name}',
@@ -724,15 +727,13 @@ class NeuroMechFlyMuJoCo(gym.Env):
         # end effector position
         ee_pos = copy.deepcopy(self.physics.bind(self.end_effector_sensors).sensordata)
         #print(ee_pos)
-
-        self.physics.control()
         return {
             'joints': joint_obs,
             'fly': fly_pos,
             #'bodies_adhesion': adhesion_obs, #added : idea: record when adhesion is turned on
             'contact_forces': touch_sensordata,
             'end_effectors': ee_pos,
-            'derivative_contact_forces': derivative_contact_forces
+            #'derivative_contact_forces': derivative_contact_forces
         }
 
     def _get_info(self):

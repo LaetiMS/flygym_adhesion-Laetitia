@@ -12,7 +12,7 @@ This project aims to lay down the groundworks of adhesion so that the walking fl
 
 Quick overview of the notebooks developed for this project: 
 
-- ***BrickOnCeiling.ipynb***: Adding an adhesion actuator to an XML file. Accessing gravity during the simulation. NB: accessing the adhesion actuator that was added externally causes an error. 
+- ***BrickOnCeiling.ipynb***:Case 1: Adding an adhesion actuator to an XML file. Modify it during the simulation. Case 2: Add adhesion actuator during initialization. Modify it during the simulation. Furthermore find out how to access and modify gravity during the simulation. 
 - ***mujoco_singleleg_grid.ipynb***: Perform grid search to find maximal gain value necessary for a single leg to adhere to the ceiling. 
 - ***mujoco_contact_forces.ipynb***: Analyze the relationship between contact forces and adhesion on a static nonsymmetric fly. The contact forces are filtered with a median filter.  
 - ***loop_single_step.ipynb*** : Use the single step data to create a walking fly that uses a tripod gait for a specified number of steps. Methods to amplify specific angle motion as well as a method to custom generate the number of steps in the simulation wanted.  

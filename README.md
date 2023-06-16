@@ -17,6 +17,6 @@ Quick overview of the notebooks developed for this project:
 - ***mujoco_contact_forces.ipynb***: Analyze the relationship between contact forces and adhesion on a static nonsymmetric fly. The contact forces are filtered with a median filter.  
 - ***loop_single_step.ipynb*** : Use the single step data to create a walking fly that uses a tripod gait for a specified number of steps. Methods to amplify specific angle motion as well as a method to custom generate the number of steps in the simulation wanted.  
 - ***loop_single_step_bipod.ipynb*** : Use the single step data to create a walking fly that uses a bipod gait for a specified number of steps. 
-- ***mujoco_prerun_adhesion.ipynb***: Offline calculation of adhesion. Computes the derivative of the contact forces of each Tarsus5 / the sum of all Tarsi before any adhesion. Then reruns the simulation once adhesion is applied. Adhesion is on when the derivative is positive or positive and equal. 
+- ***mujoco_prerun_adhesion.ipynb***: Offline calculation of adhesion. Computes the derivative of the contact forces of each Tarsus5 / the sum of all Tarsi before any adhesion. Then reruns the simulation once adhesion is applied. Adhesion is on when the derivative is positive or positive. 
 - ***mujoco_prerun_adhesion_copy.ipynb***: Allows to do the grid search for prerun adhesion.
 
